@@ -1,4 +1,4 @@
-# zfont — an tool to donwload nerd fonts in termux
+# zfont — an tool to download nerd fonts in termux
 # Usage
 ```console
 ~$ zfont donwload 0xProto 3270
@@ -26,5 +26,5 @@ exit # leave termux-chroot
 ```
 if you have proot-distro then you just need to eun zig build without termux-chroot.
 
-# Prebuilt execitable
-the executable is expected to work
+# Prebuilt executable
+the release executable is expected to work on most aarch64 devices, if it doesn't work to you, the recommendation is to build from source.
