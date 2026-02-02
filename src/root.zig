@@ -115,21 +115,6 @@ fn downloadFont(allocator: mem.Allocator, font_name: []const u8, prefix_dir: std
     var prefix_buff: [std.fs.max_path_bytes]u8 = undefined;
     const prefix = try prefixFromDir(prefix_dir, &prefix_buff);
 
-    const save_file_path = try mem.concat(allocator, u8, &.{ font_name, ".ttf" });
-    defer allocator.free(save_file_path);
-    const save_path = try path.join(
-        allocator,
-        &.{ prefix, "fonts", save_file_path },
-    );
-    defer allocator.free(save_path);
-
-    if (existsAbsolute(save_path) catch return IoError.CheckFontPath) {
-        std.log.info("font save path {s} already exists, deleting it", .{save_path});
-        std.fs.deleteFileAbsolute(
-            save_path,
-        ) catch return IoError.DeleteFontFile;
-    }
-
     prefix_dir.deleteDir("tmp") catch |err| if (err != error.FileNotFound) return IoError.DeleteTemporaryDirectory;
     prefix_dir.makeDir("tmp") catch return IoError.OpenTemporaryDirectory;
 
@@ -174,11 +159,24 @@ fn downloadFont(allocator: mem.Allocator, font_name: []const u8, prefix_dir: std
         allocator.free(file_writer_buf);
         allocator.free(file_reader_buf);
     }
-
     var zip_file_writer = zip_file.writer(file_writer_buf);
     var zip_file_reader = zip_file.reader(file_reader_buf);
     var zip_writer = &zip_file_writer.interface;
 
+    try fetchFont(allocator, font_name, zip_writer);
+
+    zip_writer.flush() catch return IoError.FlushTemporaryZipFile;
+
+    std.log.debug("extracting to tmp.zig", .{});
+    std.zip.extract(tmp_dir, &zip_file_reader, .{}) catch |err| {
+        std.debug.print("{}\n", .{err});
+        return IoError.FailedZipExtraction;
+    };
+
+    return saveFont(allocator, tmp_dir, prefix_dir, font_name);
+}
+
+fn fetchFont(allocator: mem.Allocator, font_name: []const u8, writer: *std.Io.Writer) !void {
     const url = try std.fmt.allocPrint(
         allocator,
         base_url ++ "{s}.zip",
@@ -192,7 +190,7 @@ fn downloadFont(allocator: mem.Allocator, font_name: []const u8, prefix_dir: std
 
     const res = client.fetch(
         .{
-            .response_writer = &zip_file_writer.interface,
+            .response_writer = writer,
             .method = .GET,
             .location = .{ .url = url },
         },
@@ -201,16 +199,30 @@ fn downloadFont(allocator: mem.Allocator, font_name: []const u8, prefix_dir: std
     if (res.status != .ok) {
         return DownloadError.InvalidHttpResponse;
     }
+}
 
-    zip_writer.flush() catch return IoError.FlushTemporaryZipFile;
+fn saveFont(
+    allocator: mem.Allocator,
+    stored_dir: std.fs.Dir,
+    prefix_dir: std.fs.Dir,
+    font_name: []const u8,
+) !void {
+    const save_file_path = try mem.concat(allocator, u8, &.{ font_name, ".ttf" });
+    defer allocator.free(save_file_path);
+    const save_path = try path.join(
+        allocator,
+        &.{ "fonts", save_file_path },
+    );
+    defer allocator.free(save_path);
 
-    std.log.debug("extracting to tmp.zig", .{});
-    std.zip.extract(tmp_dir, &zip_file_reader, .{}) catch |err| {
-        std.debug.print("{}\n", .{err});
-        return IoError.FailedZipExtraction;
-    };
+    if (exists(prefix_dir, save_path) catch return IoError.CheckFontPath) {
+        std.log.info("font save path {s} already exists, deleting it", .{save_path});
+        std.fs.deleteFileAbsolute(
+            save_path,
+        ) catch return IoError.DeleteFontFile;
+    }
 
-    var walker = tmp_dir.walk(allocator) catch return IoError.CreateTemporaryWalker;
+    var walker = stored_dir.walk(allocator) catch return IoError.CreateTemporaryWalker;
     defer walker.deinit();
 
     while (walker.next() catch return IoError.WalkerEntry) |entry| {
@@ -224,7 +236,7 @@ fn downloadFont(allocator: mem.Allocator, font_name: []const u8, prefix_dir: std
         }
     }
 
-    return FontError.FontNotFound;
+    return error.FontNotFound;
 }
 
 fn removeFont(
