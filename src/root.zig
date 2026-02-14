@@ -115,7 +115,7 @@ fn downloadFont(allocator: mem.Allocator, font_name: []const u8, prefix_dir: std
     var prefix_buff: [std.fs.max_path_bytes]u8 = undefined;
     const prefix = try prefixFromDir(prefix_dir, &prefix_buff);
 
-    prefix_dir.deleteDir("tmp") catch |err| if (err != error.FileNotFound) return IoError.DeleteTemporaryDirectory;
+    prefix_dir.deleteTree("tmp") catch |err| if (err != error.FileNotFound) return IoError.DeleteTemporaryDirectory;
     prefix_dir.makeDir("tmp") catch return IoError.OpenTemporaryDirectory;
 
     var tmp_dir = prefix_dir.openDir("tmp", .{ .iterate = true }) catch return IoError.OpenTemporaryDirectory;
@@ -217,7 +217,7 @@ fn saveFont(
 
     if (exists(prefix_dir, save_path) catch return IoError.CheckFontPath) {
         std.log.info("font save path {s} already exists, deleting it", .{save_path});
-        std.fs.deleteFileAbsolute(
+        prefix_dir.deleteFile(
             save_path,
         ) catch return IoError.DeleteFontFile;
     }
